@@ -95,7 +95,7 @@ class ErrorCasesTests(unittest.TestCase):
         self.failUnlessRaises(ValueError, self.d.decode, '')
 
     def test_None(self):
-        self.failUnlessRaises(ValueError, self.d.decode, None)
+        self.failUnlessRaises(TypeError, self.d.decode, None)
 
 
 if __name__ == '__main__':
