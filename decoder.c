@@ -50,7 +50,7 @@ static void Push(PyObject *stack, PyObject *element)
 static PyObject *Pop(PyObject *stack)
 {
     if (__pop == NULL)
-        __pop = PyString_FromString("pop");
+        __pop = PyUnicode_FromString("pop");
     return PyObject_CallMethodObjArgs(stack, __pop, NULL);
 }
 static unsigned int Length(PyObject *stack)
@@ -131,7 +131,7 @@ static int handle_null(void *ctx)
 static int handle_int(void *ctx, long value)
 {
     _YajlDecoder *self = (_YajlDecoder *)(ctx);
-    PyObject *object = PyInt_FromLong(value);
+    PyObject *object = PyLong_FromLong(value);
 
     return PlaceObject(self, object);
 }
@@ -160,8 +160,8 @@ static int handle_number(void *ctx, const char *value, unsigned int length)
 
     number = strncpy(number, value, length);
     number[length] = '\0';
-    string = PyString_FromStringAndSize(number, length);
-    object = PyFloat_FromString(string, NULL);
+    string = PyUnicode_FromStringAndSize(number, length);
+    object = PyFloat_FromString(string);
 
     Py_XDECREF(string);
     free(number);
@@ -172,7 +172,7 @@ static int handle_number(void *ctx, const char *value, unsigned int length)
 static int handle_string(void *ctx, const unsigned char *value, unsigned int length)
 {
     _YajlDecoder *self = (_YajlDecoder *)(ctx);
-    PyObject *object = PyString_FromStringAndSize((char *)(value), length);
+    PyObject *object = PyUnicode_FromStringAndSize((char *)(value), length);
 
     return PlaceObject(self, object);
 }
@@ -198,7 +198,7 @@ static int handle_dict_key(void *ctx, const unsigned char *value, unsigned int l
     key = strncpy(key, (char *)(value), length);
     key[length] = '\0';
 
-    object = PyString_FromStringAndSize(key, length);
+    object = PyUnicode_FromStringAndSize(key, length);
     free(key);
 
     if (!object)
@@ -299,12 +299,12 @@ PyObject *py_yajldecoder_decode(PYARGS)
     yajl_status yrc;
     yajl_parser_config config = { 1, 1 };
 
-    if (!PyArg_ParseTuple(args, "z#", &buffer, &buflen))
+    if (!PyArg_ParseTuple(args, "s#", &buffer, &buflen))
         return NULL;
 
     if (!buflen) {
         PyErr_SetObject(PyExc_ValueError, 
-                PyString_FromString("Cannot parse an empty buffer"));
+                PyUnicode_FromString("Cannot parse an empty buffer"));
         return NULL;
     }
 
@@ -325,13 +325,13 @@ PyObject *py_yajldecoder_decode(PYARGS)
 
     if (yrc != yajl_status_ok) {
         PyErr_SetObject(PyExc_ValueError, 
-                PyString_FromString(yajl_status_to_string(yrc)));
+                PyUnicode_FromString(yajl_status_to_string(yrc)));
         return NULL;
     }
 
     if (decoder->root == NULL) {
         PyErr_SetObject(PyExc_ValueError, 
-                PyString_FromString("The root object is NULL"));
+                PyUnicode_FromString("The root object is NULL"));
         return NULL;
     }
     
@@ -359,5 +359,5 @@ void yajldecoder_dealloc(_YajlDecoder *self)
     Py_XDECREF(self->elements);
     Py_XDECREF(self->keys);
     Py_XDECREF(self->root);
-    self->ob_type->tp_free((PyObject*)self);
+    ((PyObject *)self)->ob_type->tp_free((PyObject*)self);
 }
