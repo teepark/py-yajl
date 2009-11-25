@@ -108,12 +108,9 @@ static int handle_bool(void *ctx, int value)
 static int handle_number(void *ctx, const char *value, unsigned int length)
 {
     _YajlDecoder *self = (_YajlDecoder *)(ctx);
-    PyObject *string, *object;
+    PyObject *object;
 
-    string = PyString_FromStringAndSize(value, length);
-    object = PyFloat_FromString(string, NULL);
-
-    Py_XDECREF(string);
+    object = PyLong_FromString(value, NULL, 0);
     
     return PlaceObject(self, object);
 }
@@ -143,7 +140,7 @@ static int handle_dict_key(void *ctx, const unsigned char *value, unsigned int l
     _YajlDecoder *self = (_YajlDecoder *)(ctx);
     PyObject *object = NULL;
 
-    object = PyString_FromStringAndSize((const char *) value, length);
+    object = PyUnicode_FromStringAndSize((const char *) value, length);
 
     if (NULL == object)
         return failure;
