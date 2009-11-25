@@ -45,8 +45,7 @@ static PyMethodDef yajlencoder_methods[] = {
 };
 
 static PyTypeObject YajlDecoderType = {
-    PyObject_HEAD_INIT(NULL)
-    0,                         /*ob_size*/
+    PyVarObject_HEAD_INIT(NULL, 0)
     "yajl.YajlDecoder",        /*tp_name*/
     sizeof(_YajlDecoder),      /*tp_basicsize*/
     0,                         /*tp_itemsize*/
@@ -86,8 +85,7 @@ static PyTypeObject YajlDecoderType = {
 }; 
 
 static PyTypeObject YajlEncoderType = {
-    PyObject_HEAD_INIT(NULL)
-    0,                         /*ob_size*/
+    PyVarObject_HEAD_INIT(NULL, 0)
     "yajl.YajlEncoder",        /*tp_name*/
     sizeof(_YajlEncoder),      /*tp_basicsize*/
     0,                         /*tp_itemsize*/
@@ -135,7 +133,7 @@ static PyObject *py_loads(PYARGS)
     PyObject *str = NULL;
     PyObject *result = NULL;
 
-    if (!PyArg_ParseTuple(args, "S", &str)) {
+    if (!PyArg_ParseTuple(args, "O", &str)) {
         return NULL;
     }
     
@@ -145,7 +143,7 @@ static PyObject *py_loads(PYARGS)
     }
 
     if (__decode == NULL)
-        __decode = PyString_FromString("decode");
+        __decode = PyUnicode_FromString("decode");
 
     result = PyObject_CallMethodObjArgs(decoder, __decode, str, NULL);
     Py_XDECREF(decoder);
@@ -168,7 +166,7 @@ static PyObject *py_dumps(PYARGS)
     }
 
     if (__encode == NULL)
-        __encode = PyString_FromString("encode");
+        __encode = PyUnicode_FromString("encode");
 
     result = PyObject_CallMethodObjArgs(encoder, __encode, obj, NULL);
     Py_XDECREF(encoder);
@@ -181,24 +179,38 @@ static struct PyMethodDef yajl_methods[] = {
     {NULL}
 };
 
+static struct PyModuleDef yajlmodule = {
+    PyModuleDef_HEAD_INIT,
+    "yajl",
+    NULL,
+    -1,
+    yajl_methods,
+    NULL,
+    NULL,
+    NULL,
+    NULL
+};
 
 
-PyMODINIT_FUNC inityajl(void)
+
+PyMODINIT_FUNC PyInit_yajl(void)
 {
-    PyObject *module = Py_InitModule3("yajl", yajl_methods, NULL);
+		PyObject *module = PyModule_Create(&yajlmodule);
 
     YajlDecoderType.tp_new = PyType_GenericNew;
     if (PyType_Ready(&YajlDecoderType) < 0)
-        return;
+        return NULL;
 
     Py_INCREF(&YajlDecoderType);
     PyModule_AddObject(module, "Decoder", (PyObject *)(&YajlDecoderType));
 
     YajlEncoderType.tp_new = PyType_GenericNew;
     if (PyType_Ready(&YajlEncoderType) < 0)
-        return;
+        return NULL;
 
     Py_INCREF(&YajlEncoderType);
     PyModule_AddObject(module, "Encoder", (PyObject *)(&YajlEncoderType));
+
+		return module;
 }
 
