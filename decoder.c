@@ -111,7 +111,7 @@ static int handle_number(void *ctx, const char *value, unsigned int length)
     if (floaty_char >= length) {
         object = PyLong_FromString(string->ob_sval, NULL, 10);
     } else {
-        object = PyFloat_FromString(string);
+        object = PyFloat_FromString((PyObject *)string);
     }
     Py_XDECREF(string);
 
