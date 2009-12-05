@@ -123,16 +123,14 @@ static PyTypeObject YajlEncoderType = {
     0,                         /* tp_alloc */
 }; 
 
-PyObject *__decode = NULL;
-PyObject *__encode = NULL;
-
 static PyObject *py_loads(PYARGS)
 {
     PyObject *decoder = NULL;
-    PyObject *str = NULL;
     PyObject *result = NULL;
+    char *buffer = NULL;
+    unsigned int buflen = 0;
 
-    if (!PyArg_ParseTuple(args, "O", &str)) {
+    if (!PyArg_ParseTuple(args, "z#", &buffer, &buflen)) {
         return NULL;
     }
     
@@ -141,10 +139,7 @@ static PyObject *py_loads(PYARGS)
         return NULL;
     }
 
-    if (__decode == NULL)
-        __decode = PyUnicode_FromString("decode");
-
-    result = PyObject_CallMethodObjArgs(decoder, __decode, str, NULL);
+    result = _internal_decode((_YajlDecoder *)decoder, buffer, buflen);
     Py_XDECREF(decoder);
     return result;
 }
@@ -164,24 +159,138 @@ static PyObject *py_dumps(PYARGS)
         return NULL;
     }
 
-    if (__encode == NULL)
-        __encode = PyUnicode_FromString("encode");
-
-    result = PyObject_CallMethodObjArgs(encoder, __encode, obj, NULL);
+    result = _internal_encode((_YajlEncoder *)encoder, obj);
     Py_XDECREF(encoder);
     return result;
 }
 
+static PyObject *__read = NULL;
+static PyObject *_internal_stream_load(PyObject *args, unsigned int blocking)
+{
+    PyObject *decoder = NULL;
+    PyObject *stream = NULL;
+    PyObject *buffer = NULL;
+    PyObject *bufferstring = NULL;
+    PyObject *result = NULL;
+
+    if (!PyArg_ParseTuple(args, "O", &stream)) {
+        goto bad_type;
+    }
+
+    if (__read == NULL) {
+        __read = PyUnicode_FromString("read");
+    }
+
+    if (!PyObject_HasAttr(stream, __read)) {
+        goto bad_type;
+    }
+
+    buffer = PyObject_CallMethodObjArgs(stream, __read, NULL);
+    bufferstring = PyUnicode_AsUTF8String(buffer);
+
+    if (!buffer)
+        return NULL;
+
+    decoder = PyObject_Call((PyObject *)(&YajlDecoderType), NULL, NULL);
+    if (decoder == NULL) {
+        return NULL;
+    }
+
+    result = _internal_decode((_YajlDecoder *)decoder, PyBytes_AsString(bufferstring),
+                  PyBytes_Size(bufferstring));
+    Py_XDECREF(decoder);
+    Py_XDECREF(buffer);
+    Py_XDECREF(bufferstring);
+    return result;
+
+bad_type:
+    PyErr_SetObject(PyExc_TypeError, PyUnicode_FromString("Must pass a single stream object"));
+    return NULL;
+}
+
+static PyObject *py_load(PYARGS)
+{
+    return _internal_stream_load(args, 1);
+}
+static PyObject *py_iterload(PYARGS)
+{
+    return _internal_stream_load(args, 0);
+}
+
+static PyObject *__write = NULL;
+static PyObject *_internal_stream_dump(PyObject *args, unsigned int blocking)
+{
+    PyObject *encoder = NULL;
+    PyObject *stream = NULL;
+    PyObject *buffer = NULL;
+    PyObject *object = NULL;
+
+    if (!PyArg_ParseTuple(args, "OO", &object, &stream)) {
+        goto bad_type;
+    }
+
+    if (__write == NULL) {
+        __write = PyUnicode_FromString("write");
+    }
+
+    if (!PyObject_HasAttr(stream, __write)) {
+        goto bad_type;
+    }
+
+    encoder = PyObject_Call((PyObject *)(&YajlEncoderType), NULL, NULL);
+    if (encoder == NULL) {
+        return NULL;
+    }
+
+    buffer = _internal_encode((_YajlEncoder *)encoder, object);
+    PyObject_CallMethodObjArgs(stream, __write, buffer, NULL);
+    Py_XDECREF(encoder);
+    return Py_True;
+
+bad_type:
+    PyErr_SetObject(PyExc_TypeError, PyUnicode_FromString("Must pass a stream object"));
+    return NULL;
+}
+static PyObject *py_dump(PYARGS)
+{
+    return _internal_stream_dump(args, 0);
+}
+
 static struct PyMethodDef yajl_methods[] = {
-    {"dumps", (PyCFunction)(py_dumps), METH_VARARGS, NULL},
-    {"loads", (PyCFunction)(py_loads), METH_VARARGS, NULL},
+    {"dumps", (PyCFunction)(py_dumps), METH_VARARGS, 
+"yajl.dumps(obj)\n\n\
+Returns an encoded JSON string of the specified `obj`"},
+    {"loads", (PyCFunction)(py_loads), METH_VARARGS, 
+"yajl.loads(string)\n\n\
+Returns a decoded object based on the given JSON `string`"},
+    {"load", (PyCFunction)(py_load), METH_VARARGS, 
+"yajl.load(fp)\n\n\
+Returns a decoded object based on the JSON read from the `fp` stream-like\n\
+object; *Note:* It is expected that `fp` supports the `read()` method"},
+    {"dump", (PyCFunction)(py_dump), METH_VARARGS, 
+"yajl.dump(obj, fp)\n\n\
+Encodes the given `obj` and writes it to the `fp` stream-like object. \n\
+*Note*: It is expected that `fp` supports the `write()` method"},
+    /*
+     {"iterload", (PyCFunction)(py_iterload), METH_VARARGS, NULL},
+     */
     {NULL}
 };
 
 static struct PyModuleDef yajlmodule = {
     PyModuleDef_HEAD_INIT,
     "yajl",
-    NULL,
+"Providing a pythonic interface to the yajl (Yet Another JSON Library) parser\n\n\
+The interface is similar to that of simplejson or jsonlib providing a consistent syntax for JSON\n\
+encoding and decoding. Unlike simplejson or jsonlib, yajl is **fast** :)\n\n\
+The following benchmark was done on a dual core MacBook Pro with a fairly large (100K) JSON document:\n\
+json.loads():\t\t21351.313ms\n\
+simplejson.loads():\t1378.6492ms\n\
+yajl.loads():\t\t502.4572ms\n\
+\n\
+json.dumps():\t\t7760.6348ms\n\
+simplejson.dumps():\t930.9748ms\n\
+yajl.dumps():\t\t681.0221ms",
     -1,
     yajl_methods,
     NULL,

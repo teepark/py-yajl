@@ -192,9 +192,6 @@ PyObject *_internal_encode(_YajlEncoder *self, PyObject *obj)
         return NULL;
     }
 
-    /* truncate to used size, and resize will handle the null plugging */
-    _PyBytes_Resize(&sauc.str, sauc.used);
-
 		result = PyUnicode_DecodeUTF8(((PyBytesObject *)sauc.str)->ob_sval, sauc.used, "strict");
 		Py_XDECREF(sauc.str);
 

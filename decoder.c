@@ -93,7 +93,8 @@ static int handle_bool(void *ctx, int value)
 static int handle_number(void *ctx, const char *value, unsigned int length)
 {
     _YajlDecoder *self = (_YajlDecoder *)(ctx);
-    PyObject *string, *object;
+    PyObject *object;
+    PyBytesObject *string;
 
     int floaty_char;
 
@@ -106,9 +107,9 @@ static int handle_number(void *ctx, const char *value, unsigned int length)
     }
 
   floatin:
-    string = PyUnicode_FromStringAndSize(value, length);
+    string = (PyBytesObject *)PyBytes_FromStringAndSize(value, length);
     if (floaty_char >= length) {
-        object = PyLong_FromString(((PyBytesObject *)PyUnicode_AsUTF8String(string))->ob_sval, NULL, 10);
+        object = PyLong_FromString(string->ob_sval, NULL, 10);
     } else {
         object = PyFloat_FromString(string);
     }
