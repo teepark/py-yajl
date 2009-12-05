@@ -52,16 +52,17 @@ typedef struct {
 } _YajlEncoder;
 
 #define PYARGS PyObject *self, PyObject *args, PyObject *kwargs
-
 enum { failure, success };
+
+#define PY_YAJL_CHUNK_SZ 64
 
 /*
  * Methods defined for the YajlDecoder type in decoder.c
  */
 extern PyObject *py_yajldecoder_decode(PYARGS);
-extern PyObject *py_yajldecoder_raw_decode(PYARGS);
 extern int yajldecoder_init(PYARGS);
 extern void yajldecoder_dealloc(_YajlDecoder *self);
+extern PyObject *_internal_decode(_YajlDecoder *self, char *buffer, unsigned int buflen);
 
 
 /*
@@ -70,6 +71,7 @@ extern void yajldecoder_dealloc(_YajlDecoder *self);
 extern PyObject *py_yajlencoder_encode(PYARGS);
 extern int yajlencoder_init(PYARGS);
 extern void yajlencoder_dealloc(_YajlEncoder *self);
+extern PyObject *_internal_encode(_YajlEncoder *self, PyObject *obj);
 
 #endif
 

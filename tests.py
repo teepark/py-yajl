@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+
+from io import StringIO
 import unittest
 
 import yajl
@@ -72,7 +74,7 @@ class BasicJSONEncodeTests(unittest.TestCase):
         self.assertEncodesTo({'key' : 'value'}, '{"key":"value"}')
 
     def test_UnicodeDict(self):
-        self.assertEncodesTo({'foō' : 'bār'}, '{"fo\\u014d":"b\\u0101r"}')
+        self.assertEncodesTo({'foō' : 'bār'}, '{"foō":"bār"}')
 
     def test_NestedDictAndList(self):
         self.assertEncodesTo({'key' : {'subkey' : [1,2,3]}},
@@ -95,7 +97,44 @@ class ErrorCasesTests(unittest.TestCase):
         self.failUnlessRaises(ValueError, self.d.decode, '')
 
     def test_None(self):
-        self.failUnlessRaises(TypeError, self.d.decode, None)
+        self.failUnlessRaises(ValueError, self.d.decode, None)
+
+
+class StreamBlockingDecodingTests(unittest.TestCase):
+    def setUp(self):
+        self.stream = StringIO('{"foo":["one","two", ["three", "four"]]}')
+
+    def test_no_object(self):
+        self.failUnlessRaises(TypeError, yajl.load)
+
+    def test_bad_object(self):
+        self.failUnlessRaises(TypeError, yajl.load, 'this is no stream!')
+
+    def test_simple_decode(self):
+        obj = yajl.load(self.stream)
+        self.assertEquals(obj, {'foo' : ['one', 'two', ['three', 'four']]})
+
+class StreamIterDecodingTests(object): # TODO: Change to unittest.TestCase when I start to think about iterative
+    def setUp(self):
+        self.stream = StringIO('{"foo":["one","two",["three", "four"]]}')
+
+    def test_no_object(self):
+        self.failUnlessRaises(TypeError, yajl.iterload)
+
+    def test_bad_object(self):
+        self.failUnlessRaises(TypeError, yajl.iterload, 'this is no stream!')
+
+    def test_simple_decode(self):
+        for k, v in yajl.iterload(self.stream):
+            print(k, v)
+
+
+class StreamEncodingTests(unittest.TestCase):
+    def test_blocking_encode(self):
+        obj = {'foo' : ['one', 'two', ['three', 'four']]}
+        stream = StringIO()
+        buffer = yajl.dump(obj, stream)
+        self.assertEquals(stream.getvalue(), '{"foo":["one","two",["three","four"]]}')
 
 
 if __name__ == '__main__':

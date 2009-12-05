@@ -35,7 +35,6 @@
 
 static PyMethodDef yajldecoder_methods[] = {
     {"decode", (PyCFunction)(py_yajldecoder_decode), METH_VARARGS, NULL},
-    {"raw_decode", (PyCFunction)(py_yajldecoder_raw_decode), METH_VARARGS, NULL},
     {NULL}
 };
 

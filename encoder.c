@@ -1,3 +1,4 @@
+
 /*
  * Copyright 2009, R. Tyler Ballance <tyler@monkeypox.org>
  * 
@@ -39,14 +40,12 @@
 
 #include "py_yajl.h"
 
-void yajl_string_decode(yajl_buf buf, const unsigned char * str,
-                        unsigned int length);
-
 static yajl_gen_status ProcessObject(_YajlEncoder *self, PyObject *object)
 {
     yajl_gen handle = (yajl_gen)(self->_generator);
     yajl_gen_status status = yajl_gen_in_error_state;
     PyObject *iterator, *item;
+    unsigned short int decref = 0;
 
     if (object == Py_None) {
         return yajl_gen_null(handle);
@@ -58,14 +57,21 @@ static yajl_gen_status ProcessObject(_YajlEncoder *self, PyObject *object)
         return yajl_gen_bool(handle, 0);
     }
     if (PyUnicode_Check(object)) {
-        object = PyUnicode_AsEncodedString(object, "unicode-escape", NULL);
-        char *buffer = NULL;
+        object = PyUnicode_AsUTF8String(object);
+        decref = 1;
+    }
+    if (PyBytes_Check(object)) {
+        const unsigned char *buffer = NULL;
         Py_ssize_t length;
-        PyBytes_AsStringAndSize(object, &buffer, &length);
-				for (length = 0; buffer[length]; length++);
-        status = yajl_gen_string(handle, (unsigned char *)buffer, length);
-        Py_XDECREF(object);
+        PyBytes_AsStringAndSize(object, (char **)&buffer, &length);
+        status = yajl_gen_string(handle, buffer, (unsigned int)(length));
+        if (decref) {
+            Py_XDECREF(object);
+        }
         return status;
+    }
+    if (PyLong_Check(object)) {
+        return yajl_gen_integer(handle, PyLong_AsLong(object));
     }
     if (PyLong_Check(object)) {
         return yajl_gen_integer(handle, PyLong_AsLong(object));
@@ -94,6 +100,7 @@ static yajl_gen_status ProcessObject(_YajlEncoder *self, PyObject *object)
         Py_ssize_t position = 0;
 
         status = yajl_gen_map_open(handle);
+
         while (PyDict_Next(object, &position, &key, &value)) {
             status = ProcessObject(self, key);
             status = ProcessObject(self, value);
@@ -108,53 +115,101 @@ static yajl_gen_status ProcessObject(_YajlEncoder *self, PyObject *object)
 
 yajl_alloc_funcs *y_allocs = NULL;
 
-PyObject *py_yajlencoder_encode(PYARGS)
+/* a structure used to pass context to our printer function */
+struct StringAndUsedCount 
 {
-    _YajlEncoder *encoder = (_YajlEncoder *)(self);
-    PyObject *value, *result;
+    PyObject * str;
+    size_t used;    
+};
+
+    
+static void py_yajl_printer(void * ctx,
+                            const char * str,
+                            unsigned int len)
+{
+    struct StringAndUsedCount * sauc = (struct StringAndUsedCount *) ctx;    
+    size_t newsize;
+
+    if (!sauc || !sauc->str) return;
+
+    /* resize our string if necc */
+    newsize = Py_SIZE(sauc->str);
+    while (sauc->used + len > newsize) newsize *= 2;
+    if (newsize != Py_SIZE(sauc->str)) {
+        _PyBytes_Resize(&(sauc->str), newsize);
+        if (!sauc->str) return;
+    }
+
+    /* and append data if available */
+    if (len && str) {
+        memcpy((void *)(((PyBytesObject *)sauc->str)->ob_sval + sauc->used), str, len);
+        sauc->used += len;
+    }
+}
+
+/* Efficiently allocate a python string of a fixed size containing uninitialized memory */
+static PyObject * lowLevelStringAlloc(Py_ssize_t size)
+{
+    PyBytesObject * op = (PyBytesObject *)PyObject_MALLOC(sizeof(PyBytesObject) + size);
+    if (op) {
+        PyObject_INIT_VAR(op, &PyBytes_Type, size);
+    }
+    return (PyObject *) op;
+}
+
+PyObject *_internal_encode(_YajlEncoder *self, PyObject *obj)
+{
     yajl_gen generator = NULL;
-    yajl_status yrc;
-    const unsigned char *buffer;
-    unsigned int buflen = 0;
     yajl_gen_config genconfig = { 0, NULL};
     yajl_gen_status status;
+    struct StringAndUsedCount sauc;
+		PyObject *result = NULL;
 
-    if (!PyArg_ParseTuple(args, "O", &value))
+    /* initialize context for our printer function which
+     * performs low level string appending, using the python
+     * string implementation as a chunked growth buffer */
+    sauc.used = 0;
+    sauc.str = lowLevelStringAlloc(PY_YAJL_CHUNK_SZ);
+
+    generator = yajl_gen_alloc2(py_yajl_printer, &genconfig, NULL, (void *) &sauc);
+
+    self->_generator = generator;
+
+    status = ProcessObject(self, obj);
+
+    yajl_gen_free(generator);
+    self->_generator = NULL;
+
+    /* if resize failed inside our printer function we'll have a null sauc.str */
+    if (!sauc.str) {
+        PyErr_SetObject(PyExc_ValueError, PyUnicode_FromString("Allocation failure"));
         return NULL;
-    
-    generator = yajl_gen_alloc(&genconfig, NULL);
-    encoder->_generator = generator;
-
-    status = ProcessObject(encoder, value);
+    }
 
     if (status != yajl_gen_status_ok) {
         PyErr_SetObject(PyExc_ValueError, PyUnicode_FromString("Failed to process"));
+        Py_XDECREF(sauc.str);
         return NULL;
     }
-    yrc = yajl_gen_get_buf(generator, &buffer, &buflen);
 
-    /* 
-     * Need to decode the buffer after Yajl is done with it to ensure the
-     * string we get back is correct
-     */
-    if (y_allocs == NULL) {
-        y_allocs = (yajl_alloc_funcs *)(malloc(sizeof(yajl_alloc_funcs)));
-        yajl_set_default_alloc_funcs(y_allocs);
-    }
+    /* truncate to used size, and resize will handle the null plugging */
+    _PyBytes_Resize(&sauc.str, sauc.used);
 
-    yajl_buf ybuf = yajl_buf_alloc(y_allocs);
-    yajl_string_decode(ybuf, buffer,  buflen);
+		result = PyUnicode_DecodeUTF8(((PyBytesObject *)sauc.str)->ob_sval, sauc.used, "strict");
+		Py_XDECREF(sauc.str);
 
-    result = PyUnicode_FromStringAndSize((const char *)(yajl_buf_data(ybuf)), yajl_buf_len(ybuf));
-
-    yajl_buf_free(ybuf);
-
-    yajl_gen_free(generator);
-    encoder->_generator = NULL;
-
-    if ( (!buffer) || (!buflen) )
-        return NULL;
     return result;
+}
+
+PyObject *py_yajlencoder_encode(PYARGS)
+{
+    _YajlEncoder *encoder = (_YajlEncoder *)(self);
+    PyObject *value;
+
+    if (!PyArg_ParseTuple(args, "O", &value))
+        return NULL;
+
+    return _internal_encode(encoder, value);
 }
 
 int yajlencoder_init(PYARGS)
@@ -168,5 +223,5 @@ int yajlencoder_init(PYARGS)
 
 void yajlencoder_dealloc(_YajlEncoder *self)
 {
-    ((PyObject *)self)->ob_type->tp_free((PyObject*)self);
+    Py_TYPE(self)->tp_free((PyObject*)self);
 }
